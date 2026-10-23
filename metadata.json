@@ -1,0 +1,6 @@
+{
+  "name": "Katha Voice Easy",
+  "description": "Voice-dictated credit ledger and customer udhari management for Indian retail shops and local businesses with accurate paise accounting.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,67 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-paper: #FBF9F5;
+    --card-paper: #FFFFFF;
+    --border-paper: #E6E0D2;
+    --border-paper-strong: #D5CEBE;
+    
+    /* Prime Accent: Deep Forest Green */
+    --forest-950: #0A2118;
+    --forest-900: #103325;
+    --forest-800: #164E35;
+    --forest-700: #1F6B4A;
+    --forest-600: #29855D;
+    --forest-100: #E6F3EC;
+    --forest-50: #F2F8F4;
+
+    /* Second Accent: Muted Terracotta */
+    --terracotta-900: #7A2E19;
+    --terracotta-800: #9E3E23;
+    --terracotta-700: #C25438;
+    --terracotta-600: #D86B50;
+    --terracotta-100: #FBECE8;
+    --terracotta-50: #FCF4F1;
+  }
+
+  body {
+    background-color: #FBF9F5;
+    color: #1C1917;
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  }
+
+  h1, h2, h3, .font-canto, .font-display {
+    font-family: 'Playfair Display', 'Cinzel', serif;
+  }
+
+  .font-num {
+    font-family: 'JetBrains Mono', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    font-feature-settings: 'tnum' on, 'lnum' on;
+  }
+}
+
+/* Subtle laser paper ruled lines and stamp motifs */
+.laser-paper {
+  background-color: #FFFFFF;
+  background-image: radial-gradient(#E8E3D7 0.75px, transparent 0.75px);
+  background-size: 16px 16px;
+}
+
+.ledger-rule-green {
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 31px,
+    rgba(22, 78, 53, 0.08) 31px,
+    rgba(22, 78, 53, 0.08) 32px
+  );
+}
+
+.ledger-hairline {
+  border-bottom: 1px solid rgba(22, 78, 53, 0.15);
+}
+
+.ledger-double-line {
+  border-bottom: 3px double rgba(22, 78, 53, 0.25);
+}
