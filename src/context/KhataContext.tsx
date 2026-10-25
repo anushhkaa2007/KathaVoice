@@ -22,7 +22,6 @@ import {
   deleteDoc,
   updateDoc,
   onSnapshot,
-  query,
   writeBatch,
   getDocs,
 } from 'firebase/firestore';
@@ -72,6 +71,9 @@ interface KhataContextType {
 
 const KhataContext = createContext<KhataContextType | undefined>(undefined);
 
+const GUEST_CUSTOMERS_KEY = 'katha_guest_customers';
+const GUEST_TRANSACTIONS_KEY = 'katha_guest_transactions';
+
 export const KhataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentUser } = useAuth();
 
@@ -81,7 +83,9 @@ export const KhataProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [activeView, setActiveView] = useState<ActiveView>('overview');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
 
-  // Sync with Firestore scoped strictly to the authenticated user ID
+  const isGuest = currentUser?.isGuest || currentUser?.uid === 'guest-local-user';
+
+  // Sync data: Either via localStorage (guest/offline) or Firestore (authenticated user)
   useEffect(() => {
     if (!currentUser) {
       setCustomers([]);
@@ -91,15 +95,40 @@ export const KhataProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return;
     }
 
-    setLoading(true);
+    if (isGuest) {
+      // LocalStorage mode for demo guest
+      try {
+        const rawCust = localStorage.getItem(GUEST_CUSTOMERS_KEY);
+        const rawTx = localStorage.getItem(GUEST_TRANSACTIONS_KEY);
+        if (rawCust && rawTx) {
+          setCustomers(JSON.parse(rawCust));
+          setTransactions(JSON.parse(rawTx));
+        } else {
+          setCustomers(DEMO_CUSTOMERS);
+          setTransactions(DEMO_TRANSACTIONS);
+          localStorage.setItem(GUEST_CUSTOMERS_KEY, JSON.stringify(DEMO_CUSTOMERS));
+          localStorage.setItem(GUEST_TRANSACTIONS_KEY, JSON.stringify(DEMO_TRANSACTIONS));
+        }
+      } catch (e) {
+        console.warn('LocalStorage access warning:', e);
+        setCustomers(DEMO_CUSTOMERS);
+        setTransactions(DEMO_TRANSACTIONS);
+      }
+      setLoading(false);
+      return;
+    }
 
+    // Authenticated Firestore subcollections
+    setLoading(true);
     const customersRef = collection(db, 'users', currentUser.uid, 'customers');
     const transactionsRef = collection(db, 'users', currentUser.uid, 'transactions');
 
-    // Subscribe to customers subcollection
+    let initialCheckDone = false;
+
+    // Subscribe to customers
     const unsubCustomers = onSnapshot(
       customersRef,
-      (snapshot) => {
+      async (snapshot) => {
         const loadedCustomers: Customer[] = [];
         snapshot.forEach((docSnap) => {
           const data = docSnap.data();
@@ -112,14 +141,51 @@ export const KhataProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             createdAt: data.createdAt,
           });
         });
+
+        // If new user with no customers, automatically seed demo data to get started
+        if (!initialCheckDone && loadedCustomers.length === 0 && snapshot.metadata.fromCache === false) {
+          initialCheckDone = true;
+          try {
+            const batch = writeBatch(db);
+            DEMO_CUSTOMERS.forEach((c) => {
+              const cRef = doc(db, 'users', currentUser.uid, 'customers', c.id);
+              batch.set(cRef, {
+                userId: currentUser.uid,
+                name: c.name,
+                ...(c.phone ? { phone: c.phone } : {}),
+                ...(c.notes ? { notes: c.notes } : {}),
+                createdAt: c.createdAt,
+              });
+            });
+            DEMO_TRANSACTIONS.forEach((t) => {
+              const tRef = doc(db, 'users', currentUser.uid, 'transactions', t.id);
+              batch.set(tRef, {
+                userId: currentUser.uid,
+                customerId: t.customerId,
+                customerName: t.customerName,
+                type: t.type,
+                amountPaise: t.amountPaise,
+                description: t.description,
+                date: t.date,
+                ...(t.notes ? { notes: t.notes } : {}),
+                createdAt: t.createdAt,
+              });
+            });
+            await batch.commit();
+          } catch (seedErr) {
+            console.warn('Auto-seed notice:', seedErr);
+          }
+        }
+
         setCustomers(loadedCustomers);
       },
       (err) => {
-        console.error('Firestore customers listener error:', err);
+        console.warn('Firestore customers listener notice:', err);
+        setLoading(false);
       }
     );
 
-    // Subscribe to transactions subcollection
+    // Subscribe to transactions
     const unsubTransactions = onSnapshot(
       transactionsRef,
       (snapshot) => {
@@ -144,7 +210,7 @@ export const KhataProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setLoading(false);
       },
       (err) => {
-        console.error('Firestore transactions listener error:', err);
+        console.warn('Firestore transactions listener notice:', err);
         setLoading(false);
       }
     );
@@ -153,7 +219,7 @@ export const KhataProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       unsubCustomers();
       unsubTransactions();
     };
-  }, [currentUser]);
+  }, [currentUser, isGuest]);
 
   // Derive dashboard stats deterministically
   const stats = useMemo(() => {
@@ -224,6 +290,13 @@ export const KhataProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       createdAt: new Date().toISOString(),
     };
 
+    if (isGuest) {
+      const updated = [...customers, newCustomer];
+      setCustomers(updated);
+      localStorage.setItem(GUEST_CUSTOMERS_KEY, JSON.stringify(updated));
+      return newCustomer;
+    }
+
     const docRef = doc(db, 'users', currentUser.uid, 'customers', customerId);
     await setDoc(docRef, {
       userId: currentUser.uid,
@@ -241,6 +314,28 @@ export const KhataProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     data: { name: string; phone?: string; notes?: string }
   ) => {
     if (!currentUser) return;
+
+    if (isGuest) {
+      const updatedCusts = customers.map((c) =>
+        c.id === id
+          ? {
+              ...c,
+              name: data.name.trim(),
+              phone: data.phone?.trim() || undefined,
+              notes: data.notes?.trim() || undefined,
+            }
+          : c
+      );
+      const updatedTxs = transactions.map((t) =>
+        t.customerId === id ? { ...t, customerName: data.name.trim() } : t
+      );
+      setCustomers(updatedCusts);
+      setTransactions(updatedTxs);
+      localStorage.setItem(GUEST_CUSTOMERS_KEY, JSON.stringify(updatedCusts));
+      localStorage.setItem(GUEST_TRANSACTIONS_KEY, JSON.stringify(updatedTxs));
+      return;
+    }
+
     const docRef = doc(db, 'users', currentUser.uid, 'customers', id);
     await updateDoc(docRef, {
       name: data.name.trim(),
@@ -248,25 +343,35 @@ export const KhataProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       ...(data.notes ? { notes: data.notes.trim() } : {}),
     });
 
-    // Also update customerName across this customer's transactions
     const customerTxs = transactions.filter((t) => t.customerId === id);
-    const batch = writeBatch(db);
-    customerTxs.forEach((t) => {
-      const txRef = doc(db, 'users', currentUser.uid, 'transactions', t.id);
-      batch.update(txRef, { customerName: data.name.trim() });
-    });
-    await batch.commit();
+    if (customerTxs.length > 0) {
+      const batch = writeBatch(db);
+      customerTxs.forEach((t) => {
+        const txRef = doc(db, 'users', currentUser.uid, 'transactions', t.id);
+        batch.update(txRef, { customerName: data.name.trim() });
+      });
+      await batch.commit();
+    }
   };
 
   const deleteCustomer = async (id: string) => {
     if (!currentUser) return;
-    const batch = writeBatch(db);
 
-    // Delete customer document
+    if (isGuest) {
+      const updatedCusts = customers.filter((c) => c.id !== id);
+      const updatedTxs = transactions.filter((t) => t.customerId !== id);
+      setCustomers(updatedCusts);
+      setTransactions(updatedTxs);
+      localStorage.setItem(GUEST_CUSTOMERS_KEY, JSON.stringify(updatedCusts));
+      localStorage.setItem(GUEST_TRANSACTIONS_KEY, JSON.stringify(updatedTxs));
+      if (selectedCustomerId === id) setSelectedCustomerId(null);
+      return;
+    }
+
+    const batch = writeBatch(db);
     const custRef = doc(db, 'users', currentUser.uid, 'customers', id);
     batch.delete(custRef);
 
-    // Delete all transactions of this customer
     const customerTxs = transactions.filter((t) => t.customerId === id);
     customerTxs.forEach((t) => {
       const txRef = doc(db, 'users', currentUser.uid, 'transactions', t.id);
@@ -274,10 +379,7 @@ export const KhataProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     });
 
     await batch.commit();
-
-    if (selectedCustomerId === id) {
-      setSelectedCustomerId(null);
-    }
+    if (selectedCustomerId === id) setSelectedCustomerId(null);
   };
 
   const addTransaction = async ({
@@ -312,7 +414,6 @@ export const KhataProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (existing) {
         resolvedCustomer = existing;
       } else {
-        // Create new customer
         resolvedCustomer = await addCustomer({ name: customerName.trim() });
       }
     }
@@ -332,6 +433,13 @@ export const KhataProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       notes: notes?.trim() || undefined,
       createdAt: new Date().toISOString(),
     };
+
+    if (isGuest) {
+      const updatedTxs = [newTx, ...transactions];
+      setTransactions(updatedTxs);
+      localStorage.setItem(GUEST_TRANSACTIONS_KEY, JSON.stringify(updatedTxs));
+      return { transaction: newTx, customer: resolvedCustomer };
+    }
 
     const txDocRef = doc(db, 'users', currentUser.uid, 'transactions', txId);
     await setDoc(txDocRef, {
@@ -360,6 +468,26 @@ export const KhataProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   ) => {
     if (!currentUser) return;
+
+    if (isGuest) {
+      const updatedTxs = transactions.map((t) =>
+        t.id === id
+          ? {
+              ...t,
+              type: data.type,
+              amountPaise: rupeesToPaise(data.amountRupees),
+              description: data.description.trim(),
+              date: data.date,
+              notes: data.notes?.trim() || undefined,
+              updatedAt: new Date().toISOString(),
+            }
+          : t
+      );
+      setTransactions(updatedTxs);
+      localStorage.setItem(GUEST_TRANSACTIONS_KEY, JSON.stringify(updatedTxs));
+      return;
+    }
+
     const docRef = doc(db, 'users', currentUser.uid, 'transactions', id);
     await updateDoc(docRef, {
       type: data.type,
@@ -373,15 +501,31 @@ export const KhataProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const deleteTransaction = async (id: string) => {
     if (!currentUser) return;
+
+    if (isGuest) {
+      const updatedTxs = transactions.filter((t) => t.id !== id);
+      setTransactions(updatedTxs);
+      localStorage.setItem(GUEST_TRANSACTIONS_KEY, JSON.stringify(updatedTxs));
+      return;
+    }
+
     const docRef = doc(db, 'users', currentUser.uid, 'transactions', id);
     await deleteDoc(docRef);
   };
 
   const loadDemoData = async () => {
     if (!currentUser) return;
-    const batch = writeBatch(db);
 
-    // Write demo customers to user's Firestore subcollection
+    if (isGuest) {
+      setCustomers(DEMO_CUSTOMERS);
+      setTransactions(DEMO_TRANSACTIONS);
+      localStorage.setItem(GUEST_CUSTOMERS_KEY, JSON.stringify(DEMO_CUSTOMERS));
+      localStorage.setItem(GUEST_TRANSACTIONS_KEY, JSON.stringify(DEMO_TRANSACTIONS));
+      setSelectedCustomerId(null);
+      return;
+    }
+
+    const batch = writeBatch(db);
     for (const c of DEMO_CUSTOMERS) {
       const cRef = doc(db, 'users', currentUser.uid, 'customers', c.id);
       batch.set(cRef, {
@@ -392,8 +536,6 @@ export const KhataProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         createdAt: c.createdAt,
       });
     }
-
-    // Write demo transactions to user's Firestore subcollection
     for (const t of DEMO_TRANSACTIONS) {
       const tRef = doc(db, 'users', currentUser.uid, 'transactions', t.id);
       batch.set(tRef, {
@@ -408,23 +550,27 @@ export const KhataProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         createdAt: t.createdAt,
       });
     }
-
     await batch.commit();
     setSelectedCustomerId(null);
   };
 
   const clearDemoData = async () => {
     if (!currentUser) return;
-    const batch = writeBatch(db);
 
-    // Clear customers subcollection
+    if (isGuest) {
+      setCustomers([]);
+      setTransactions([]);
+      localStorage.setItem(GUEST_CUSTOMERS_KEY, JSON.stringify([]));
+      localStorage.setItem(GUEST_TRANSACTIONS_KEY, JSON.stringify([]));
+      setSelectedCustomerId(null);
+      return;
+    }
+
+    const batch = writeBatch(db);
     const custDocs = await getDocs(collection(db, 'users', currentUser.uid, 'customers'));
     custDocs.forEach((d) => batch.delete(d.ref));
-
-    // Clear transactions subcollection
     const txDocs = await getDocs(collection(db, 'users', currentUser.uid, 'transactions'));
     txDocs.forEach((d) => batch.delete(d.ref));
-
     await batch.commit();
     setSelectedCustomerId(null);
   };

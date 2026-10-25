@@ -10,13 +10,14 @@ import {
   CheckCircle2,
   ShieldCheck,
   Sparkles,
+  ExternalLink,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 export type AuthMode = 'login' | 'register' | 'forgot-password';
 
 export const AuthView: React.FC<{ initialMode?: AuthMode }> = ({ initialMode = 'login' }) => {
-  const { login, register, resetPassword, authError, setAuthError } = useAuth();
+  const { login, register, signInWithGoogle, continueAsGuest, resetPassword, authError, setAuthError } = useAuth();
 
   const [mode, setMode] = useState<AuthMode>(initialMode);
   const [fullName, setFullName] = useState('');
@@ -25,8 +26,22 @@ export const AuthView: React.FC<{ initialMode?: AuthMode }> = ({ initialMode = '
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [googleSubmitting, setGoogleSubmitting] = useState(false);
   const [resetSentEmail, setResetSentEmail] = useState<string | null>(null);
   const [localValidationMsg, setLocalValidationMsg] = useState<string | null>(null);
+
+  const handleGoogleSignIn = async () => {
+    setLocalValidationMsg(null);
+    setAuthError(null);
+    setGoogleSubmitting(true);
+    try {
+      await signInWithGoogle();
+    } catch (_) {
+      // Error captured in authError
+    } finally {
+      setGoogleSubmitting(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -102,6 +117,9 @@ export const AuthView: React.FC<{ initialMode?: AuthMode }> = ({ initialMode = '
     setResetSentEmail(null);
   };
 
+  const isOperationNotAllowed =
+    authError && authError.toLowerCase().includes('not enabled in this firebase project');
+
   return (
     <div className="min-h-screen bg-[#FBF9F5] flex flex-col justify-center py-12 sm:px-6 lg:px-8 laser-paper">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
@@ -134,13 +152,77 @@ export const AuthView: React.FC<{ initialMode?: AuthMode }> = ({ initialMode = '
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md px-4 sm:px-0">
         <div className="bg-[#FFFFFF] py-8 px-6 sm:px-10 border border-[#E6E0D2] rounded-2xl shadow-sm space-y-6">
+          {/* Primary Recommended Action: Google Sign-In */}
+          <div>
+            <button
+              type="button"
+              onClick={handleGoogleSignIn}
+              disabled={googleSubmitting || submitting}
+              className="w-full flex items-center justify-center gap-3 py-2.5 px-4 rounded-xl bg-white border border-[#D5CEBE] text-stone-800 text-sm font-semibold hover:bg-[#FAF7F2] active:scale-[0.98] disabled:opacity-50 transition-all shadow-xs"
+            >
+              <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
+                <path
+                  fill="#4285F4"
+                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                />
+                <path
+                  fill="#34A853"
+                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                />
+                <path
+                  fill="#FBBC05"
+                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                />
+                <path
+                  fill="#EA4335"
+                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                />
+              </svg>
+              <span>{googleSubmitting ? 'Connecting Google...' : 'Continue with Google (Recommended)'}</span>
+            </button>
+            <p className="text-[11px] text-stone-600 text-center mt-1.5">
+              Instant 1-click cloud sync pre-configured for your store.
+            </p>
+          </div>
+
+          {/* Divider */}
+          <div className="relative flex items-center justify-center">
+            <div className="border-t border-[#E6E0D2] w-full" />
+            <span className="bg-white px-3 text-[11px] uppercase font-semibold text-stone-600">
+              or with email
+            </span>
+          </div>
+
           {/* Error Message Alert */}
           {(authError || localValidationMsg) && (
-            <div className="p-3.5 bg-[#FCF4F1] border border-[#C25438]/40 rounded-xl flex items-start gap-2.5 text-xs text-[#9E3E23]">
-              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-[#C25438]" />
-              <div className="leading-relaxed font-medium">
-                {localValidationMsg || authError}
+            <div className="p-3.5 bg-[#FCF4F1] border border-[#C25438]/40 rounded-xl space-y-2 text-xs text-[#9E3E23]">
+              <div className="flex items-start gap-2.5">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-[#C25438]" />
+                <div className="leading-relaxed font-medium">
+                  {localValidationMsg || authError}
+                </div>
               </div>
+
+              {/* Actionable guidance if email provider is disabled */}
+              {isOperationNotAllowed && (
+                <div className="pt-2 border-t border-[#C25438]/20 space-y-2">
+                  <div className="text-[11px] text-stone-700">
+                    💡 <strong>Quick Fix:</strong> Click <strong>Continue with Google</strong> above to sign in without email setup.
+                  </div>
+                  <div className="p-2 bg-white rounded border border-[#E6E0D2] text-[11px] text-stone-600">
+                    <strong>To enable Email/Password:</strong> Open your{' '}
+                    <a
+                      href="https://console.firebase.google.com"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[#164E35] underline font-semibold inline-flex items-center gap-0.5"
+                    >
+                      Firebase Console <ExternalLink className="w-3 h-3 inline" />
+                    </a>{' '}
+                    &rarr; <em>Authentication</em> &rarr; <em>Sign-in method</em> &rarr; Enable <strong>Email/Password</strong>.
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -277,7 +359,7 @@ export const AuthView: React.FC<{ initialMode?: AuthMode }> = ({ initialMode = '
             <div className="pt-2">
               <button
                 type="submit"
-                disabled={submitting}
+                disabled={submitting || googleSubmitting}
                 className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-[#164E35] text-white text-sm font-semibold hover:bg-[#103325] active:scale-[0.98] disabled:opacity-50 transition-all shadow-sm ring-1 ring-[#103325]"
               >
                 {submitting ? (
@@ -288,8 +370,8 @@ export const AuthView: React.FC<{ initialMode?: AuthMode }> = ({ initialMode = '
                 ) : (
                   <>
                     <span>
-                      {mode === 'login' && 'Sign In to Shop Ledger'}
-                      {mode === 'register' && 'Create Account & Start Ledger'}
+                      {mode === 'login' && 'Sign In with Email'}
+                      {mode === 'register' && 'Register with Email'}
                       {mode === 'forgot-password' && 'Send Password Reset Link'}
                     </span>
                     <ArrowRight className="w-4 h-4" />
@@ -303,13 +385,13 @@ export const AuthView: React.FC<{ initialMode?: AuthMode }> = ({ initialMode = '
           <div className="pt-4 border-t border-[#E6E0D2] text-center text-xs text-stone-600 space-y-2">
             {mode === 'login' && (
               <p>
-                Don&apos;t have a ledger account yet?{' '}
+                Don&apos;t have an email ledger account?{' '}
                 <button
                   type="button"
                   onClick={() => switchMode('register')}
                   className="font-bold text-[#164E35] hover:underline"
                 >
-                  Register your shop
+                  Register with Email
                 </button>
               </p>
             )}
@@ -339,6 +421,18 @@ export const AuthView: React.FC<{ initialMode?: AuthMode }> = ({ initialMode = '
                 </button>
               </p>
             )}
+
+            {/* Guest Demo Mode Option */}
+            <div className="pt-3 border-t border-[#E6E0D2]">
+              <button
+                type="button"
+                onClick={continueAsGuest}
+                className="w-full py-2 px-3 rounded-lg border border-[#D5CEBE] bg-[#FAF7F2] hover:bg-[#E6F3EC] text-[#164E35] text-xs font-semibold transition-colors flex items-center justify-center gap-1.5"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Explore as Demo Guest (No Sign-In Required)</span>
+              </button>
+            </div>
           </div>
 
           {/* Security Note */}
