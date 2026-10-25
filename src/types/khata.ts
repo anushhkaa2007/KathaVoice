@@ -2,6 +2,7 @@ export type TransactionType = 'credit' | 'payment';
 
 export interface Customer {
   id: string;
+  userId?: string;
   name: string;
   phone?: string;
   notes?: string;
@@ -10,6 +11,7 @@ export interface Customer {
 
 export interface Transaction {
   id: string;
+  userId?: string;
   customerId: string;
   customerName: string;
   type: TransactionType;

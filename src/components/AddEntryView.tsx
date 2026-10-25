@@ -419,7 +419,7 @@ export const AddEntryView: React.FC<{
     setExtractedItems((prev) => (prev ? prev.filter((item) => item.id !== id) : null));
   };
 
-  const handleSaveEntry = () => {
+  const handleSaveEntry = async () => {
     if (!extractedItems || extractedItems.length === 0) return;
 
     let hasErrors = false;
@@ -449,7 +449,7 @@ export const AddEntryView: React.FC<{
     let savedSummaryNames: string[] = [];
 
     for (const item of extractedItems) {
-      const result = addTransaction({
+      const result = await addTransaction({
         customerId: item.selectedCustomerId,
         customerName: item.customerName,
         type: item.type,

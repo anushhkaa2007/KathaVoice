@@ -78,23 +78,27 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
     return true;
   });
 
-  const handleCreateCustomer = (e: React.FormEvent) => {
+  const handleCreateCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCustomerForm.name.trim()) {
       setFormError('Customer name is required.');
       return;
     }
 
-    const created = addCustomer({
-      name: newCustomerForm.name.trim(),
-      phone: newCustomerForm.phone.trim() || undefined,
-      notes: newCustomerForm.notes.trim() || undefined,
-    });
+    try {
+      const created = await addCustomer({
+        name: newCustomerForm.name.trim(),
+        phone: newCustomerForm.phone.trim() || undefined,
+        notes: newCustomerForm.notes.trim() || undefined,
+      });
 
-    setNewCustomerForm({ name: '', phone: '', notes: '' });
-    setFormError('');
-    setShowAddCustomerModal(false);
-    onOpenCustomer(created.id);
+      setNewCustomerForm({ name: '', phone: '', notes: '' });
+      setFormError('');
+      setShowAddCustomerModal(false);
+      onOpenCustomer(created.id);
+    } catch (err: any) {
+      setFormError(err.message || 'Failed to create customer');
+    }
   };
 
   return (

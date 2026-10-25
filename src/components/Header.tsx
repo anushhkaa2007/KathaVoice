@@ -1,6 +1,7 @@
 import React from 'react';
-import { PlusCircle, BookOpen, Menu, X, Users, LayoutDashboard, ReceiptText, Database, Trash2 } from 'lucide-react';
+import { PlusCircle, BookOpen, Menu, X, Users, LayoutDashboard, ReceiptText, Database, Trash2, LogOut, Store } from 'lucide-react';
 import { useKhata, ActiveView } from '../context/KhataContext';
+import { useAuth } from '../context/AuthContext';
 import { formatINR } from '../utils/accounting';
 
 interface HeaderProps {
@@ -10,6 +11,7 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({ onLoadDemoClick, onClearDemoClick }) => {
   const { activeView, setActiveView, stats, setSelectedCustomerId } = useKhata();
+  const { currentUser, logout } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
 
   const viewTitles: Record<ActiveView, { title: string; subtitle: string }> = {
@@ -64,7 +66,17 @@ export const Header: React.FC<HeaderProps> = ({ onLoadDemoClick, onClearDemoClic
           </div>
 
           {/* Right Action Bar */}
-          <div className="flex items-center gap-2.5 sm:gap-4">
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            {/* Owner & Shop Chip (Desktop) */}
+            {currentUser && (
+              <div className="hidden xl:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#FAF7F2] border border-[#E6E0D2] text-xs">
+                <Store className="w-3.5 h-3.5 text-[#164E35]" />
+                <span className="font-semibold text-stone-900 truncate max-w-[140px]">{currentUser.shopName}</span>
+                <span className="text-stone-400">•</span>
+                <span className="text-stone-600 truncate max-w-[120px]">{currentUser.fullName}</span>
+              </div>
+            )}
+
             {/* Quick Balance Chip */}
             <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#FAF7F2] border border-[#E6E0D2] text-xs">
               <span className="text-stone-700">Total Credit Due:</span>
@@ -87,12 +99,43 @@ export const Header: React.FC<HeaderProps> = ({ onLoadDemoClick, onClearDemoClic
                 <span>+ Add Entry</span>
               </button>
             )}
+
+            {/* Sign Out Button (Desktop) */}
+            <button
+              type="button"
+              onClick={() => logout()}
+              title="Sign Out"
+              className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-2 text-xs font-medium text-stone-600 hover:text-[#9E3E23] hover:bg-[#FBECE8] border border-[#E6E0D2] rounded-lg transition-colors"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">Sign Out</span>
+            </button>
           </div>
         </div>
 
         {/* Mobile Dropdown Menu Drawer */}
         {mobileMenuOpen && (
-          <div className="lg:hidden mt-3 pt-3 border-t border-[#E6E0D2] space-y-2">
+          <div className="lg:hidden mt-3 pt-3 border-t border-[#E6E0D2] space-y-3">
+            {/* Current user badge in mobile menu */}
+            {currentUser && (
+              <div className="p-2.5 bg-[#FAF7F2] rounded-lg border border-[#E6E0D2] flex items-center justify-between text-xs">
+                <div>
+                  <div className="font-bold text-stone-900">{currentUser.shopName}</div>
+                  <div className="text-stone-600">{currentUser.fullName} ({currentUser.email})</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    logout();
+                  }}
+                  className="px-2.5 py-1 text-xs font-semibold text-[#9E3E23] bg-[#FBECE8] rounded-md"
+                >
+                  Sign Out
+                </button>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-2 text-xs">
               <button
                 type="button"

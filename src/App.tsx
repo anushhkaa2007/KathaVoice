@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { KhataProvider, useKhata } from './context/KhataContext';
+import { AuthView } from './components/Auth/AuthView';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { MobileNav } from './components/MobileNav';
@@ -8,9 +10,10 @@ import { CustomersView } from './components/CustomersView';
 import { AddEntryView } from './components/AddEntryView';
 import { TransactionsView } from './components/TransactionsView';
 import { CustomerDetailModal } from './components/CustomerDetailModal';
-import { AlertCircle, Database, Trash2, CheckCircle2 } from 'lucide-react';
+import { AlertCircle, Database, Trash2, CheckCircle2, BookOpen } from 'lucide-react';
 
 const AppContent: React.FC = () => {
+  const { currentUser, loading: authLoading } = useAuth();
   const {
     activeView,
     setActiveView,
@@ -55,6 +58,27 @@ const AppContent: React.FC = () => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [setActiveView]);
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-[#FBF9F5] flex flex-col items-center justify-center p-6 laser-paper select-none">
+        <div className="w-14 h-14 rounded-2xl bg-[#164E35] text-[#FFFFFF] flex items-center justify-center shadow-lg animate-pulse mb-4">
+          <BookOpen className="w-7 h-7 text-[#E6F3EC]" />
+        </div>
+        <h2 className="font-canto text-2xl font-bold tracking-tight text-[#103325]">
+          Katha Voice Easy
+        </h2>
+        <p className="text-xs text-stone-600 mt-1.5 flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-[#164E35] animate-ping" />
+          <span>Securing ledger connection...</span>
+        </p>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return <AuthView />;
+  }
 
   return (
     <div className="min-h-screen bg-[#FBF9F5] text-stone-900 flex flex-col lg:flex-row antialiased">
@@ -204,8 +228,10 @@ const AppContent: React.FC = () => {
 
 export default function App() {
   return (
-    <KhataProvider>
-      <AppContent />
-    </KhataProvider>
+    <AuthProvider>
+      <KhataProvider>
+        <AppContent />
+      </KhataProvider>
+    </AuthProvider>
   );
 }

@@ -13,8 +13,10 @@ import {
   BookCheck,
   ShieldCheck,
   ArrowRight,
+  Store,
 } from 'lucide-react';
 import { useKhata } from '../context/KhataContext';
+import { useAuth } from '../context/AuthContext';
 import { formatINR, paiseToRupees } from '../utils/accounting';
 
 interface OverviewDashboardProps {
@@ -27,6 +29,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
   onOpenAddEntryForCustomer,
 }) => {
   const { stats, setActiveView, setSelectedCustomerId } = useKhata();
+  const { currentUser } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
 
   // Filter recent transactions
@@ -47,15 +50,25 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
       <div className="bg-[#FFFFFF] border border-[#E6E0D2] rounded-xl p-5 sm:p-6 shadow-xs relative overflow-hidden laser-paper">
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-5">
           <div className="space-y-1.5 max-w-2xl">
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#E6F3EC] text-[#164E35] text-xs font-semibold">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Voice-Powered Retail Credit Ledger</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#E6F3EC] text-[#164E35] text-xs font-semibold">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Voice-Powered Retail Credit Ledger</span>
+              </div>
+              {currentUser && (
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#FAF7F2] text-stone-700 border border-[#E6E0D2] text-xs font-medium">
+                  <Store className="w-3 h-3 text-[#164E35]" />
+                  <span className="font-semibold text-stone-900">{currentUser.shopName}</span>
+                  <span className="text-stone-400">•</span>
+                  <span>{currentUser.fullName}</span>
+                </div>
+              )}
             </div>
             <h2 className="font-canto text-2xl sm:text-3xl font-bold tracking-tight text-[#103325]">
-              Every udhari accounted for, in real-time.
+              {currentUser ? `${currentUser.shopName}` : 'Every udhari accounted for, in real-time.'}
             </h2>
             <p className="text-sm text-stone-600 leading-relaxed">
-              Record daily purchases and payments in natural language using Wispr Flow dictation. All balances, running ledgers, and payment reminders stay accurate to the paise.
+              Welcome back, <strong>{currentUser?.fullName || 'Shop Owner'}</strong>. Record daily purchases and payments in natural language using Wispr Flow dictation. All customer balances stay synchronized to the paise.
             </p>
           </div>
 

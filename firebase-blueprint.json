@@ -1,0 +1,145 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile containing merchant identity, shop details, and metadata",
+      "type": "object",
+      "properties": {
+        "fullName": {
+          "type": "string",
+          "description": "Full name of the shop owner",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "shopName": {
+          "type": "string",
+          "description": "Name of the retail business or shop",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Registered email address of the owner"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp when the user profile was created"
+        }
+      },
+      "required": ["fullName", "shopName", "email", "createdAt"]
+    },
+    "Customer": {
+      "title": "Customer",
+      "description": "A customer who has a khata ledger account with the shop",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Customer ID",
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Authenticated shopkeeper UID owner",
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Customer name",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "phone": {
+          "type": "string",
+          "description": "Customer phone number",
+          "maxLength": 20
+        },
+        "notes": {
+          "type": "string",
+          "description": "Shopkeeper notes regarding the customer",
+          "maxLength": 500
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of creation"
+        }
+      },
+      "required": ["id", "userId", "name", "createdAt"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "A single credit sale or payment receipt entry in the khata ledger",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Transaction ID",
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Authenticated shopkeeper UID owner",
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "customerId": {
+          "type": "string",
+          "description": "ID of the customer this entry belongs to",
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "customerName": {
+          "type": "string",
+          "description": "Name of the customer for fast querying and indexing",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "type": {
+          "type": "string",
+          "enum": ["credit", "payment"],
+          "description": "Type of transaction: credit (udhari) or payment (jama)"
+        },
+        "amountPaise": {
+          "type": "integer",
+          "description": "Monetary value in integer paise (1 INR = 100 paise) to eliminate floating point errors"
+        },
+        "description": {
+          "type": "string",
+          "description": "Goods description or payment details",
+          "maxLength": 300
+        },
+        "date": {
+          "type": "string",
+          "description": "Transaction date in YYYY-MM-DD format"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Optional notes or voice dictation transcript",
+          "maxLength": 500
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of creation"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of last update"
+        }
+      },
+      "required": ["id", "userId", "customerId", "customerName", "type", "amountPaise", "description", "date", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Stores user profile and shop information for authenticated shopkeepers"
+    },
+    "/users/{userId}/customers/{customerId}": {
+      "schema": { "$ref": "#/entities/Customer" },
+      "description": "Customer khata records owned by the authenticated shopkeeper"
+    },
+    "/users/{userId}/transactions/{transactionId}": {
+      "schema": { "$ref": "#/entities/Transaction" },
+      "description": "Transaction entries in the khata ledger owned by the authenticated shopkeeper"
+    }
+  }
+}

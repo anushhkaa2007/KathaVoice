@@ -14,9 +14,19 @@ import {
   rupeesToPaise,
 } from '../utils/accounting';
 import { DEMO_CUSTOMERS, DEMO_TRANSACTIONS } from '../utils/demoData';
-
-const CUSTOMERS_KEY = 'khata_voice_easy_customers_v1';
-const TRANSACTIONS_KEY = 'khata_voice_easy_transactions_v1';
+import { useAuth } from './AuthContext';
+import {
+  collection,
+  doc,
+  setDoc,
+  deleteDoc,
+  updateDoc,
+  onSnapshot,
+  query,
+  writeBatch,
+  getDocs,
+} from 'firebase/firestore';
+import { db } from '../firebase/config';
 
 export type ActiveView = 'overview' | 'customers' | 'add-entry' | 'transactions';
 
@@ -30,9 +40,10 @@ interface KhataContextType {
   selectedCustomer: CustomerWithSummary | null;
   selectedCustomerTransactions: TransactionWithBalance[];
   stats: DashboardStats;
-  addCustomer: (data: { name: string; phone?: string; notes?: string }) => Customer;
-  updateCustomer: (id: string, data: { name: string; phone?: string; notes?: string }) => void;
-  deleteCustomer: (id: string) => void;
+  loading: boolean;
+  addCustomer: (data: { name: string; phone?: string; notes?: string }) => Promise<Customer>;
+  updateCustomer: (id: string, data: { name: string; phone?: string; notes?: string }) => Promise<void>;
+  deleteCustomer: (id: string) => Promise<void>;
   addTransaction: (data: {
     customerId?: string;
     customerName: string;
@@ -41,7 +52,7 @@ interface KhataContextType {
     description: string;
     date: string;
     notes?: string;
-  }) => { transaction: Transaction; customer: Customer };
+  }) => Promise<{ transaction: Transaction; customer: Customer }>;
   updateTransaction: (
     id: string,
     data: {
@@ -51,10 +62,10 @@ interface KhataContextType {
       date: string;
       notes?: string;
     }
-  ) => void;
-  deleteTransaction: (id: string) => void;
-  loadDemoData: () => void;
-  clearDemoData: () => void;
+  ) => Promise<void>;
+  deleteTransaction: (id: string) => Promise<void>;
+  loadDemoData: () => Promise<void>;
+  clearDemoData: () => Promise<void>;
   exportToCSV: () => void;
   allTransactionsWithRunning: TransactionWithBalance[];
 }
@@ -62,46 +73,87 @@ interface KhataContextType {
 const KhataContext = createContext<KhataContextType | undefined>(undefined);
 
 export const KhataProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [customers, setCustomers] = useState<Customer[]>(() => {
-    try {
-      const saved = localStorage.getItem(CUSTOMERS_KEY);
-      if (saved) return JSON.parse(saved);
-    } catch (e) {
-      console.warn('Failed reading customers from localStorage', e);
-    }
-    return DEMO_CUSTOMERS;
-  });
+  const { currentUser } = useAuth();
 
-  const [transactions, setTransactions] = useState<Transaction[]>(() => {
-    try {
-      const saved = localStorage.getItem(TRANSACTIONS_KEY);
-      if (saved) return JSON.parse(saved);
-    } catch (e) {
-      console.warn('Failed reading transactions from localStorage', e);
-    }
-    return DEMO_TRANSACTIONS;
-  });
-
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
   const [activeView, setActiveView] = useState<ActiveView>('overview');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
 
-  // Persist customers to localStorage
+  // Sync with Firestore scoped strictly to the authenticated user ID
   useEffect(() => {
-    try {
-      localStorage.setItem(CUSTOMERS_KEY, JSON.stringify(customers));
-    } catch (e) {
-      console.error('Failed saving customers to localStorage', e);
+    if (!currentUser) {
+      setCustomers([]);
+      setTransactions([]);
+      setSelectedCustomerId(null);
+      setLoading(false);
+      return;
     }
-  }, [customers]);
 
-  // Persist transactions to localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem(TRANSACTIONS_KEY, JSON.stringify(transactions));
-    } catch (e) {
-      console.error('Failed saving transactions to localStorage', e);
-    }
-  }, [transactions]);
+    setLoading(true);
+
+    const customersRef = collection(db, 'users', currentUser.uid, 'customers');
+    const transactionsRef = collection(db, 'users', currentUser.uid, 'transactions');
+
+    // Subscribe to customers subcollection
+    const unsubCustomers = onSnapshot(
+      customersRef,
+      (snapshot) => {
+        const loadedCustomers: Customer[] = [];
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data();
+          loadedCustomers.push({
+            id: docSnap.id,
+            userId: data.userId || currentUser.uid,
+            name: data.name,
+            phone: data.phone,
+            notes: data.notes,
+            createdAt: data.createdAt,
+          });
+        });
+        setCustomers(loadedCustomers);
+      },
+      (err) => {
+        console.error('Firestore customers listener error:', err);
+      }
+    );
+
+    // Subscribe to transactions subcollection
+    const unsubTransactions = onSnapshot(
+      transactionsRef,
+      (snapshot) => {
+        const loadedTransactions: Transaction[] = [];
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data();
+          loadedTransactions.push({
+            id: docSnap.id,
+            userId: data.userId || currentUser.uid,
+            customerId: data.customerId,
+            customerName: data.customerName,
+            type: data.type,
+            amountPaise: data.amountPaise,
+            description: data.description,
+            date: data.date,
+            notes: data.notes,
+            createdAt: data.createdAt,
+            updatedAt: data.updatedAt,
+          });
+        });
+        setTransactions(loadedTransactions);
+        setLoading(false);
+      },
+      (err) => {
+        console.error('Firestore transactions listener error:', err);
+        setLoading(false);
+      }
+    );
+
+    return () => {
+      unsubCustomers();
+      unsubTransactions();
+    };
+  }, [currentUser]);
 
   // Derive dashboard stats deterministically
   const stats = useMemo(() => {
@@ -149,38 +201,86 @@ export const KhataProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     });
   }, [customers, transactions]);
 
-  const addCustomer = ({ name, phone, notes }: { name: string; phone?: string; notes?: string }): Customer => {
+  const addCustomer = async ({
+    name,
+    phone,
+    notes,
+  }: {
+    name: string;
+    phone?: string;
+    notes?: string;
+  }): Promise<Customer> => {
+    if (!currentUser) throw new Error('Must be signed in to add customers');
+
+    const customerId = `cust-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const trimmedName = name.trim();
+
     const newCustomer: Customer = {
-      id: `cust-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      id: customerId,
+      userId: currentUser.uid,
       name: trimmedName,
       phone: phone?.trim() || undefined,
       notes: notes?.trim() || undefined,
       createdAt: new Date().toISOString(),
     };
-    setCustomers((prev) => [newCustomer, ...prev]);
+
+    const docRef = doc(db, 'users', currentUser.uid, 'customers', customerId);
+    await setDoc(docRef, {
+      userId: currentUser.uid,
+      name: newCustomer.name,
+      ...(newCustomer.phone ? { phone: newCustomer.phone } : {}),
+      ...(newCustomer.notes ? { notes: newCustomer.notes } : {}),
+      createdAt: newCustomer.createdAt,
+    });
+
     return newCustomer;
   };
 
-  const updateCustomer = (id: string, data: { name: string; phone?: string; notes?: string }) => {
-    setCustomers((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, ...data, name: data.name.trim() } : c))
-    );
-    // Also update customerName in transactions for this customer
-    setTransactions((prev) =>
-      prev.map((t) => (t.customerId === id ? { ...t, customerName: data.name.trim() } : t))
-    );
+  const updateCustomer = async (
+    id: string,
+    data: { name: string; phone?: string; notes?: string }
+  ) => {
+    if (!currentUser) return;
+    const docRef = doc(db, 'users', currentUser.uid, 'customers', id);
+    await updateDoc(docRef, {
+      name: data.name.trim(),
+      ...(data.phone ? { phone: data.phone.trim() } : {}),
+      ...(data.notes ? { notes: data.notes.trim() } : {}),
+    });
+
+    // Also update customerName across this customer's transactions
+    const customerTxs = transactions.filter((t) => t.customerId === id);
+    const batch = writeBatch(db);
+    customerTxs.forEach((t) => {
+      const txRef = doc(db, 'users', currentUser.uid, 'transactions', t.id);
+      batch.update(txRef, { customerName: data.name.trim() });
+    });
+    await batch.commit();
   };
 
-  const deleteCustomer = (id: string) => {
-    setCustomers((prev) => prev.filter((c) => c.id !== id));
-    setTransactions((prev) => prev.filter((t) => t.customerId !== id));
+  const deleteCustomer = async (id: string) => {
+    if (!currentUser) return;
+    const batch = writeBatch(db);
+
+    // Delete customer document
+    const custRef = doc(db, 'users', currentUser.uid, 'customers', id);
+    batch.delete(custRef);
+
+    // Delete all transactions of this customer
+    const customerTxs = transactions.filter((t) => t.customerId === id);
+    customerTxs.forEach((t) => {
+      const txRef = doc(db, 'users', currentUser.uid, 'transactions', t.id);
+      batch.delete(txRef);
+    });
+
+    await batch.commit();
+
     if (selectedCustomerId === id) {
       setSelectedCustomerId(null);
     }
   };
 
-  const addTransaction = ({
+  const addTransaction = async ({
     customerId,
     customerName,
     type,
@@ -196,7 +296,9 @@ export const KhataProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     description: string;
     date: string;
     notes?: string;
-  }): { transaction: Transaction; customer: Customer } => {
+  }): Promise<{ transaction: Transaction; customer: Customer }> => {
+    if (!currentUser) throw new Error('Must be signed in to add transactions');
+
     let resolvedCustomer: Customer | undefined;
 
     if (customerId) {
@@ -204,26 +306,23 @@ export const KhataProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
 
     if (!resolvedCustomer) {
-      // Find exact case-insensitive match
       const existing = customers.find(
         (c) => c.name.trim().toLowerCase() === customerName.trim().toLowerCase()
       );
       if (existing) {
         resolvedCustomer = existing;
       } else {
-        // Create new customer record
-        resolvedCustomer = {
-          id: `cust-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          name: customerName.trim(),
-          createdAt: new Date().toISOString(),
-        };
-        setCustomers((prev) => [resolvedCustomer!, ...prev]);
+        // Create new customer
+        resolvedCustomer = await addCustomer({ name: customerName.trim() });
       }
     }
 
+    const txId = `tx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const amountPaise = rupeesToPaise(amountRupees);
+
     const newTx: Transaction = {
-      id: `tx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      id: txId,
+      userId: currentUser.uid,
       customerId: resolvedCustomer.id,
       customerName: resolvedCustomer.name,
       type,
@@ -234,11 +333,23 @@ export const KhataProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       createdAt: new Date().toISOString(),
     };
 
-    setTransactions((prev) => [newTx, ...prev]);
+    const txDocRef = doc(db, 'users', currentUser.uid, 'transactions', txId);
+    await setDoc(txDocRef, {
+      userId: currentUser.uid,
+      customerId: newTx.customerId,
+      customerName: newTx.customerName,
+      type: newTx.type,
+      amountPaise: newTx.amountPaise,
+      description: newTx.description,
+      date: newTx.date,
+      ...(newTx.notes ? { notes: newTx.notes } : {}),
+      createdAt: newTx.createdAt,
+    });
+
     return { transaction: newTx, customer: resolvedCustomer };
   };
 
-  const updateTransaction = (
+  const updateTransaction = async (
     id: string,
     data: {
       type: 'credit' | 'payment';
@@ -248,43 +359,74 @@ export const KhataProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       notes?: string;
     }
   ) => {
-    setTransactions((prev) =>
-      prev.map((t) =>
-        t.id === id
-          ? {
-              ...t,
-              type: data.type,
-              amountPaise: rupeesToPaise(data.amountRupees),
-              description: data.description.trim(),
-              date: data.date,
-              notes: data.notes?.trim() || undefined,
-              updatedAt: new Date().toISOString(),
-            }
-          : t
-      )
-    );
+    if (!currentUser) return;
+    const docRef = doc(db, 'users', currentUser.uid, 'transactions', id);
+    await updateDoc(docRef, {
+      type: data.type,
+      amountPaise: rupeesToPaise(data.amountRupees),
+      description: data.description.trim(),
+      date: data.date,
+      ...(data.notes ? { notes: data.notes.trim() } : {}),
+      updatedAt: new Date().toISOString(),
+    });
   };
 
-  const deleteTransaction = (id: string) => {
-    setTransactions((prev) => prev.filter((t) => t.id !== id));
+  const deleteTransaction = async (id: string) => {
+    if (!currentUser) return;
+    const docRef = doc(db, 'users', currentUser.uid, 'transactions', id);
+    await deleteDoc(docRef);
   };
 
-  const loadDemoData = () => {
-    setCustomers(DEMO_CUSTOMERS);
-    setTransactions(DEMO_TRANSACTIONS);
-    setSelectedCustomerId(null);
-  };
+  const loadDemoData = async () => {
+    if (!currentUser) return;
+    const batch = writeBatch(db);
 
-  const clearDemoData = () => {
-    setCustomers([]);
-    setTransactions([]);
-    setSelectedCustomerId(null);
-    try {
-      localStorage.removeItem(CUSTOMERS_KEY);
-      localStorage.removeItem(TRANSACTIONS_KEY);
-    } catch (e) {
-      console.warn('Failed clearing localStorage', e);
+    // Write demo customers to user's Firestore subcollection
+    for (const c of DEMO_CUSTOMERS) {
+      const cRef = doc(db, 'users', currentUser.uid, 'customers', c.id);
+      batch.set(cRef, {
+        userId: currentUser.uid,
+        name: c.name,
+        ...(c.phone ? { phone: c.phone } : {}),
+        ...(c.notes ? { notes: c.notes } : {}),
+        createdAt: c.createdAt,
+      });
     }
+
+    // Write demo transactions to user's Firestore subcollection
+    for (const t of DEMO_TRANSACTIONS) {
+      const tRef = doc(db, 'users', currentUser.uid, 'transactions', t.id);
+      batch.set(tRef, {
+        userId: currentUser.uid,
+        customerId: t.customerId,
+        customerName: t.customerName,
+        type: t.type,
+        amountPaise: t.amountPaise,
+        description: t.description,
+        date: t.date,
+        ...(t.notes ? { notes: t.notes } : {}),
+        createdAt: t.createdAt,
+      });
+    }
+
+    await batch.commit();
+    setSelectedCustomerId(null);
+  };
+
+  const clearDemoData = async () => {
+    if (!currentUser) return;
+    const batch = writeBatch(db);
+
+    // Clear customers subcollection
+    const custDocs = await getDocs(collection(db, 'users', currentUser.uid, 'customers'));
+    custDocs.forEach((d) => batch.delete(d.ref));
+
+    // Clear transactions subcollection
+    const txDocs = await getDocs(collection(db, 'users', currentUser.uid, 'transactions'));
+    txDocs.forEach((d) => batch.delete(d.ref));
+
+    await batch.commit();
+    setSelectedCustomerId(null);
   };
 
   const exportToCSV = () => {
@@ -317,7 +459,7 @@ export const KhataProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     link.setAttribute('href', url);
     link.setAttribute(
       'download',
-      `Khata_Ledger_Export_${new Date().toISOString().split('T')[0]}.csv`
+      `Khata_Ledger_${currentUser?.shopName ? currentUser.shopName.replace(/\s+/g, '_') : 'Shop'}_${new Date().toISOString().split('T')[0]}.csv`
     );
     document.body.appendChild(link);
     link.click();
@@ -337,6 +479,7 @@ export const KhataProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         selectedCustomer,
         selectedCustomerTransactions,
         stats,
+        loading,
         addCustomer,
         updateCustomer,
         deleteCustomer,
